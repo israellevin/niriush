@@ -1,6 +1,7 @@
 # Dockerfile to build niri.
 FROM debian:sid
 
+# Install dependencies.
 RUN apt update
 RUN apt install -y \
     build-essential \
@@ -22,10 +23,12 @@ RUN apt install -y \
     libxcb-cursor-dev \
     libxkbcommon-dev
 
+# Install Rust and cargo-strip.
 RUN curl https://sh.rustup.rs -sSf | sh -s -- -y
 ENV PATH="/root/.cargo/bin:${PATH}"
 RUN cargo install --force cargo-strip
 
+# Build xwayland-satellite, for X, you know.
 WORKDIR /
 RUN git clone https://github.com/Supreeeme/xwayland-satellite
 WORKDIR /xwayland-satellite
@@ -40,4 +43,15 @@ WORKDIR /niri
 RUN cargo build --release
 RUN cargo strip
 
-CMD sleep infinity
+# Prepare the package directory.
+RUN mkdir -p /package/usr/local/bin
+RUN cp -a /niri/target/release/niri /package/usr/local/bin/.
+RUN cp -a /xwayland-satellite/target/release/xwayland-satellite /package/usr/local/bin/.
+
+# Serve the package directory all tarred up.
+RUN apt install -y netcat-openbsd
+CMD sh -c '( \
+    printf "HTTP/1.0 200 OK\r\nContent-Type: application/x-tar\r\n\r\n"; \
+    tar -C /package -cf - . \; \
+    echo \
+) | nc -lp80 -q0'
