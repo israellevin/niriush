@@ -15,11 +15,12 @@ Commands:
   fetch [OPTIONS]...          Pulls matching windows to focused or specified workspace.
   scatter [OPTION]            Move each matching windows to its own workspace.
   help                        Show this help message and exit.
-Options for 'windo':
+Options for 'windo' (can be combined to refine selection, so always used in conjunction):
   --filter JQ_FILTER          Apply a custom jq filter to select windows.
   --appid APP_ID              Select windows by application ID regex (case insensitive).
   --title TITLE               Select windows by title regex (case insensitive).
   --workspace REFERENCE       Select windows by workspace index, name, or 'focused'.
+  --output REFERENCE          Select windows by output name or 'focused'.
   --id-flag FLAG              Specify the flag to use for specifying window IDs in ACTION (default: --id).
   --extra-args ARGS           Additional arguments to pass to ACTION.
 Options for 'fetch':
@@ -30,7 +31,6 @@ Option for 'scatter':
 General Options:
   --help, -h                  Show this help message and exit.
 EOF
-    exit "$1"
 }
 
 # niriu.sh is called primarily with no terminal, so desktop notifications for errors.
@@ -173,17 +173,17 @@ niriush() {
     local command_name="$1"
     shift
     case "$command_name" in
-        ''|help|--help|-h) usage 0;;
+        ''|help|--help|-h) usage;;
         resetconf)
-            [ $# -gt 0 ] && usage 1
+            [ $# -gt 0 ] && error "$(usage)"
             resetconf
             exit
             ;;
         addconf|rmconf)
-            [ $# -gt 1 ] && usage 1
+            [ $# -gt 1 ] && error "$(usage)"
             ;&
         sedconf)
-            [ $# -lt 1 ] && usage 1
+            [ $# -lt 1 ] && error "$(usage)"
             $command_name "$@"
             exit
             ;;
@@ -223,36 +223,55 @@ niriush() {
                         filters+=(".workspace_id == $workspace_id")
                         shift
                         ;;
+                    --output)
+                        shift
+                        local output_name
+                        if [ "$1" = "focused" ]; then
+                            output_name=$(niri msg --json focused-output | jq -r '.name')
+                        else
+                            output_name="$1"
+                        fi
+                        shift
+                        local output_workspace_ids
+                        output_workspace_ids="$(get workspaces id ".output == \"$output_name\"")"
+                        if [ -z "$output_workspace_ids" ]; then
+                            # No workspaces on that output, so no windows.
+                            filters+=('false')
+                        fi
+                        for id in $output_workspace_ids; do
+                            fiters+=(".workspace_id == $id")
+                        done
+                        ;;
                     --id-flag)
-                        [ "$command_name" != "windo" ] && usage 1
+                        [ "$command_name" != "windo" ] && error "$(usage)"
                         shift
                         windo_id_flag="$1"
                         shift
                         ;;
                     --extra-args)
-                        [ "$command_name" != "windo" ] && usage 1
+                        [ "$command_name" != "windo" ] && error "$(usage)"
                         shift
                         windo_extra_args="$1"
                         shift
                         ;;
                     --down)
-                        [ "$command_name" != "scatter" ] && usage 1
+                        [ "$command_name" != "scatter" ] && error "$(usage)"
                         target_workspace_idx=255
                         shift
                         ;;
                     --target-workspace-idx)
-                        [ "$command_name" != "fetch" ] && usage 1
+                        [ "$command_name" != "fetch" ] && error "$(usage)"
                         shift
                         target_workspace_idx="$1"
                         shift
                         ;;
                     --tile)
-                        [ "$command_name" != "fetch" ] && usage 1
+                        [ "$command_name" != "fetch" ] && error "$(usage)"
                         tile=true
                         shift
                         ;;
                     *)
-                        [ "$command_name" != "windo" ] && usage 1
+                        [ "$command_name" != "windo" ] && error "$(usage)"
                         action+=("$1")
                         shift
                         ;;
@@ -273,7 +292,7 @@ niriush() {
                     ;;
             esac
         ;;
-        *) echo "Unknown command: $command_name"; usage 1;;
+        *) echo "Unknown command: $command_name"; error "$(usage)";;
     esac
 }
 
