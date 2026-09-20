@@ -47,6 +47,8 @@ getwinid() {
 
     # Compare with niriush result for the same filters.
     local niriush_result
+    local sorted_niriush_result
+    local sorted_result
     local niriush_command="$NIRIUSH ids --title \"$TEST_TITLE\""
     while [ $# -gt 0 ]; do
         niriush_command+=" --filter '$1'"
@@ -240,7 +242,7 @@ teardown() {
 # bats test_tags=cli
 @test 'conflicting options are rejected' {
     local error
-    run -1 script -qec 'niriu.sh flock --mode scatter --to-workspace 1 2>&1 1>/dev/null' tmp
+    run -1 script -qec "$NIRIUSH flock --mode scatter --to-workspace 1 2>&1 1>/dev/null" tmp
     error="$(tail -n+2 tmp | head -n1)"
     rm tmp
     [ "$error" = 'niriu.sh error: --to-workspace cannot be used with scatter mode'$'\r' ]

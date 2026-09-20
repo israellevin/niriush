@@ -86,7 +86,7 @@ Note that since `scatter` scatters windows across multiple workspaces, this mode
 The same window matching criteria can be used to perform actions on the matching windows (for a list of available actions, run `niri msg action --help`):
 
 ```sh
-niriu.sh windo --appid firefox maximize-window-to-edges        # Maximize all firefox windows
+niriu.sh windo --app-id firefox maximize-window-to-edges       # Maximize all firefox windows
 niriu.sh windo --output HDMI-1-0 close-window                  # Close all windows on a monitor
 niriu.sh windo --workspace 'chat' set-window-width '-20%'      # Decrease width of all windows on the "chat" workspace
 niriu.sh windo --workspace focused toggle-window-rule-opacity  # Toggle opacity rule for focused workspace

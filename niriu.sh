@@ -101,11 +101,11 @@ error() {
         done
     fi
 
-    message="${message-${BASH_SOURCE[0]} failed on line ${BASH_LINENO[0]}}"
+    message="${message:-${BASH_SOURCE[0]} failed on line ${BASH_LINENO[0]}}"
     echo "niriu.sh error: $message" >&2
     [ "$details" ] && echo -e "$details" >&2
     [ "$extra" = usage ] && usage >&2
-    [ "$NOTIFY_ERRORS" ] && notify-send -a 'niriu.sh error' -u critical "$message" ${details+"$details"}
+    [ "$NIRIUSH_ERROR_NOTIFY" ] && notify-send -a 'niriu.sh error' -u critical "$message" ${details+"$details"}
 
     exit 1
 }
@@ -118,7 +118,7 @@ resetconf() {
 }
 
 isconf() {
-    grep -qxF "$1" "$DYNAMIC_CONFIG_FILE"
+    grep -Fqxe "$1" "$DYNAMIC_CONFIG_FILE"
 }
 
 addconf() {
@@ -127,7 +127,7 @@ addconf() {
 
 rmconf() {
     if isconf "$1"; then
-        grep -vxF "$1" "$DYNAMIC_CONFIG_FILE" > "$DYNAMIC_CONFIG_FILE.tmp"
+        grep -Fvxe "$1" "$DYNAMIC_CONFIG_FILE" > "$DYNAMIC_CONFIG_FILE.tmp"
         mv "$DYNAMIC_CONFIG_FILE.tmp" "$DYNAMIC_CONFIG_FILE"
     fi
 }
@@ -141,8 +141,8 @@ toggleconf() {
 }
 
 rmconfre() {
-    if grep -qx "$1" "$DYNAMIC_CONFIG_FILE"; then
-        grep -vx "$1" "$DYNAMIC_CONFIG_FILE" > "$DYNAMIC_CONFIG_FILE.tmp"
+    if grep -qxe "$1" "$DYNAMIC_CONFIG_FILE"; then
+        grep -vxe "$1" "$DYNAMIC_CONFIG_FILE" > "$DYNAMIC_CONFIG_FILE.tmp"
         mv "$DYNAMIC_CONFIG_FILE.tmp" "$DYNAMIC_CONFIG_FILE"
     fi
 }
@@ -247,13 +247,15 @@ calculate_grid_layout() {
     local columns
     aspect_ratio=$(bc <<< "scale=2; $width / $height")
     rows=$(bc <<< "sqrt($elements * $aspect_ratio) / 1")
-    [ "$rows" -eq 0 ] && rows=1
+    [ "$rows" -gt 0 ] 2>/dev/null || rows=1
     if [ "${aspect_ratio:0:1}" = . ]; then
         columns=$rows
         rows=$(bc <<< "($elements + $columns - 1) / $columns")
     else
         columns=$(bc <<< "($elements + $rows - 1) / $rows")
     fi
+    [ "$rows" -gt 0 ] 2>/dev/null || rows=1
+    [ "$columns" -gt 0 ] 2>/dev/null || columns=1
     echo "$rows $columns"
 }
 
@@ -387,7 +389,7 @@ flock() {
 niriush() {
 
     is_in() {
-        subject="$1"
+        local subject="$1"
         shift
         while [ $# -gt 0 ]; do
             [ "$subject" = "$1" ] && return 0
