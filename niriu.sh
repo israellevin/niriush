@@ -189,22 +189,29 @@ get() {
         shift
     done
 
-    # A lot of errors can surface here, both from bugs and from usage mistakes, so let's make life easier.
-    trap - ERR
-    set +eo pipefail
+    local niri_output
+    if ! niri_output="$(niri msg --json "$object_type" 2>&1)"; then
+        error "Error getting $object_type from niri: $niri_output" trace
+    fi
     local query_output
-    if ! query_output="$(niri msg --json "$object_type" | jq -r "$filter | .$property" 2>&1)"; then
+    if ! query_output="$(jq -r "$filter | .$property" <<<"$niri_output" 2>&1)"; then
         error "Error getting '$property' of '$object_type' with filter '$filter': $query_output" trace
     fi
-    trap error ERR
-    set -eo pipefail
     echo "$query_output"
 }
 
 # A specific getter for the currently focused output.
 # Why don't outputs have an is_focused property like workspaces and windows?
 focused_output() {
-    niri msg --json focused-output | jq -r ".${1:-name}"
+    local niri_output
+    if ! niri_output="$(niri msg --json focused-output 2>&1)"; then
+        error "Error getting the focused output from niri: $niri_output" trace
+    fi
+    local query_output
+    if ! query_output="$(jq -r ".${1:-name}" <<<"$niri_output" 2>&1)"; then
+        error "Error parsing the focused output from niri: $query_output" trace
+    fi
+    echo "$query_output"
 }
 
 windo() {
@@ -229,11 +236,13 @@ scatter() {
 }
 
 fetch() {
-    local window_ids="$1"
     # Can't use `windo` here because workspace idx is relative and may change after moving each window.
     # Instead, we get the current workspace updated idx before each move.
+    local window_ids="$1"
+    local workspace_idx
     for window_id in $window_ids; do
-        niri msg action move-window-to-workspace "$(get workspaces idx '.is_focused == true')" \
+        workspace_idx="$(get workspaces idx '.is_focused == true')" || exit
+        niri msg action move-window-to-workspace "$workspace_idx" \
             --window-id "$window_id" --focus false
     done
 }
@@ -265,7 +274,7 @@ fit() {
     local height
     local rows
     local columns
-    read -r width height < <(focused_output 'logical | "\(.width) \(.height)"')
+    read -r width height < <(focused_output 'logical | "\(.width) \(.height)"') || exit
     read -r rows columns < <(calculate_grid_layout "$width" "$height" "$(wc -w <<<"$window_ids")")
 
     niri msg action focus-column-first
@@ -288,7 +297,7 @@ float_fit() {
 
     local output_width
     local output_height
-    read -r output_width output_height < <(focused_output 'logical | "\(.width) \(.height)"')
+    read -r output_width output_height < <(focused_output 'logical | "\(.width) \(.height)"') || exit
 
     local floating_zone_width=$output_width
     local floating_zone_height=$output_height
@@ -347,16 +356,20 @@ flock() {
 
     # Remember focused window (if any) before moving windows to restore focus later.
     local to_window_id
-    to_window_id="$(get windows id '.is_focused == true')"
+    to_window_id="$(get windows id '.is_focused == true')" || exit
 
-    [ "$to_output_name" ] || to_output_name="$(focused_output)"
+    if [ ! "$to_output_name" ]; then
+        to_output_name="$(focused_output)" || exit
+    fi
     windo "$window_ids" '--id' '' move-window-to-monitor "$to_output_name"
 
     case "$mode" in
         scatter) scatter "$window_ids" "$to_output_name" "$direction";;
         *)
             niri msg action focus-monitor "$to_output_name"
-            [ "$to_workspace_reference" ] || to_workspace_reference="$(get workspaces idx '.is_focused == true')"
+            if [ ! "$to_workspace_reference" ]; then
+                to_workspace_reference="$(get workspaces idx '.is_focused == true')" || exit
+            fi
             niri msg action focus-workspace "$to_workspace_reference"
             fetch "$window_ids"
 
@@ -425,12 +438,12 @@ niriush() {
                         # A workspace idx can be resolved to multiple workspace ids if there are multiple outputs.
                         local workspace_ids
                         if [ "$1" = "focused" ]; then
-                            workspace_ids=$(get workspaces id '.is_focused == true')
+                            workspace_ids=$(get workspaces id '.is_focused == true') || exit
                         else
                             if [ "$1" -eq "$1" ] 2>/dev/null; then
-                                workspace_ids=$(get workspaces id ".idx == $1")
+                                workspace_ids=$(get workspaces id ".idx == $1") || exit
                             else
-                                workspace_ids=$(get workspaces id ".name == \"$1\"")
+                                workspace_ids=$(get workspaces id ".name == \"$1\"") || exit
                             fi
                         fi
                         if [ -z "$workspace_ids" ]; then
@@ -445,13 +458,13 @@ niriush() {
                         shift
                         local output_name
                         if [ "$1" = "focused" ]; then
-                            output_name=$(focused_output)
+                            output_name=$(focused_output) || exit
                         else
                             output_name="$1"
                         fi
 
                         local output_workspace_ids
-                        output_workspace_ids="$(get workspaces id ".output == \"$output_name\"")"
+                        output_workspace_ids="$(get workspaces id ".output == \"$output_name\"")" || exit
                         if [ -z "$output_workspace_ids" ]; then
                             no_windows=true
                             break
@@ -550,7 +563,7 @@ niriush() {
             done
 
             if [ "$no_windows" != true ]; then
-                window_ids="$(get windows id "${filters[@]}")"
+                window_ids="$(get windows id "${filters[@]}")" || exit
             fi
             if ! [ "$window_ids" ]; then
                 # Don't trigger a full error, just return non-zero which might be useful for shell logic.
@@ -574,6 +587,6 @@ niriush() {
 # Only run the script if it's being executed, to allow sourcing.
 # shellcheck disable=SC2317  # This makes semantic sense if you consider sourcing vs executing.
 if ! return 0 2>/dev/null; then
-    set -eo pipefail
-    niriush "$@" || exit
+    set -Eeo pipefail
+    niriush "$@"
 fi
