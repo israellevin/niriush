@@ -86,10 +86,10 @@ error() {
         echo "${line[0]#$whitespaces}"
     }
 
-        # Read the file into an array, but only one line starting at the specified line number.
-        # From the start of that line remove the longest suffix of non-whitespace characters
-        # and remove the result from the start of the line, effectively trimming leading whitespace.
-        # Because bash.
+    # Read the file into an array, but only one line starting at the specified line number.
+    # From the start of that line remove the longest suffix of non-whitespace characters
+    # and remove the result from the start of the line, effectively trimming leading whitespace.
+    # Because bash.
     local message="$1"
     local extra="$2"
     local details
@@ -163,10 +163,10 @@ configure() {
     check_configuration_files
     while [ $# -gt 0 ]; do
         case "$1" in
-            --add) shift; addconf "$1";;
-            --rm) shift; rmconf "$1";;
-            --toggle) shift; toggleconf "$1";;
-            --rm-re) shift; rmconfre "$1";;
+            --add) shift; [ "$1" ] || error "--add requires a line" usage; addconf "$1";;
+            --rm) shift; [ "$1" ] || error "--rm requires a line" usage; rmconf "$1";;
+            --toggle) shift; [ "$1" ] || error "--toggle requires a line" usage; toggleconf "$1";;
+            --rm-re) shift; [ "$1" ] || error "--rm-re requires a pattern" usage; rmconfre "$1";;
             --reset) resetconf;;
             *) error "Unknown configuration command: $1" usage;;
         esac
@@ -179,10 +179,9 @@ configure() {
 
 # Generic filtered property getter with `niri msg --json` and `jq` with error handling.
 get() {
-    local object_type="$1"
-    shift
-    local property="$1"
-    shift
+    local object_type="$1"; [ "$object_type" ] || error "get requires an object type"
+    local property="$2"; [ "$property" ] || error "get requires a property"
+    shift 2
     local filter
     while [ $# -gt 0 ]; do
         filter+=" | select($1)"
@@ -195,9 +194,14 @@ get() {
     fi
 
     # Why don't outputs have an is_focused property like workspaces and windows?
-    local query='.'
-    [ "$object_type" != focused-output ] && query+='[]'
-    query+="$filter | .$property"
+    local query
+    if [ "$object_type" != focused-output ]; then
+        query+='.[]'
+        [ "$filter" ] && query+="$filter | "
+    else
+        [ "$filter" ] && error "Can not apply filters to $object_type"
+    fi
+    query+=".$property"
 
     local jq_output
     if ! jq_output="$(jq -r "$query" <<<"$niri_output" 2>&1)"; then
@@ -209,11 +213,9 @@ get() {
 windo() {
     # Consume first arguments so that `$@` contains only the action.
     local window_ids="$1"
-    shift
-    local window_id_flag="$1"
-    shift
-    local extra_args="$1"
-    shift
+    local window_id_flag="$2"
+    local extra_args="$3"
+    shift 3
     # shellcheck disable=SC2046,SC2086  # We want word splitting on extra_args.
     xargs -I{} niri msg action "$@" $extra_args "$window_id_flag" {} <<<"$window_ids"
 }
@@ -426,8 +428,8 @@ niriush() {
             while [ $# -gt 0 ]; do
                 case "$1" in
                     --workspace)
-                        shift
-                        # A workspace idx can be resolved to multiple workspace ids if there are multiple outputs.
+                        shift; [ "$1" ] || error "--workspace requires a workspace reference" usage
+                        # Resolve globally unique workspace IDs (workspace idx is only unique to output).
                         local workspace_ids
                         if [ "$1" = "focused" ]; then
                             workspace_ids=$(get workspaces id '.is_focused == true') || exit
@@ -447,7 +449,7 @@ niriush() {
                         filters+=(".workspace_id | IN($workspace_ids)")
                         ;;
                     --output)
-                        shift
+                        shift; [ "$1" ] || error "--output requires an output name" usage
                         local output_name
                         if [ "$1" = "focused" ]; then
                             output_name=$(get focused-output name) || exit
@@ -466,11 +468,11 @@ niriush() {
                         filters+=(".workspace_id | IN($output_workspace_ids)")
                         ;;
                     --app-id)
-                        shift
+                        shift; [ "$1" ] || error "--app-id requires an app ID pattern" usage
                         filters+=(".app_id | test(\"$1\"; \"i\")")
                         ;;
                     --title)
-                        shift
+                        shift; [ "$1" ] || error "--title requires a title pattern" usage
                         filters+=(".title | test(\"$1\"; \"i\")")
                         ;;
                     --floating)
@@ -486,24 +488,24 @@ niriush() {
                         filters+=(".is_focused == false")
                         ;;
                     --filter)
-                        shift
+                        shift; [ "$1" ] || error "--filter requires a jq filter" usage
                         filters+=("$1")
                         ;;
                     --to-output)
                         [ "$command_name" != "flock" ] && error "$command_name does not support $1" usage
-                        shift
+                        shift; [ "$1" ] || error "--to-output requires an output name" usage
                         to_output_name="$1"
                         ;;
                     --to-workspace)
                         [ "$command_name" != "flock" ] && error "$command_name does not support $1" usage
                         [ "$mode" = scatter ] && error "$1 cannot be used with scatter mode" usage
-                        shift
+                        shift; [ "$1" ] || error "--to-workspace requires a workspace reference" usage
                         to_workspace_reference="$1"
                         ;;
                     --mode)
                         [ "$command_name" != "flock" ] && error "$command_name does not support $1" usage
                         [ "$mode" ] && error "Multiple arrangements specified" usage
-                        shift
+                        shift; [ "$1" ] || error "--mode requires an arrangement mode" usage
                         mode="$1"
                         case "$mode" in
                             float)
@@ -538,12 +540,12 @@ niriush() {
                         ;;
                     --id-flag)
                         [ "$command_name" != "windo" ] && error "$command_name does not support $1" usage
-                        shift
+                        shift; [ "$1" ] || error "--id-flag requires a flag" usage
                         windo_id_flag="$1"
                         ;;
                     --extra-args)
                         [ "$command_name" != "windo" ] && error "$command_name does not support $1" usage
-                        shift
+                        shift; [ "$1" ] || error "--extra-args requires a value" usage
                         windo_extra_args="$1"
                         ;;
                     *)

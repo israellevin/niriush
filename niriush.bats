@@ -182,16 +182,18 @@ STUB
     if [ "$NUMBER_OF_OUTPUTS" -lt 1 ]; then
         log error 'No outputs detected, aborting tests'
         exit 1
-    elif [ "$NUMBER_OF_OUTPUTS" -lt 2 ]; then
+    fi
+    PRIMARY_OUTPUT="$(niri msg --json focused-output | jq -r '.name')"
+    export PRIMARY_OUTPUT
+    if [ "$NUMBER_OF_OUTPUTS" -lt 2 ]; then
         log warning 'Only one output detected, multi output tests will be skipped'
     else
-        PRIMARY_OUTPUT="$(niri msg --json focused-output | jq -r '.name')"
         if [ "$PRIMARY_OUTPUT" = "${output_names[0]}" ]; then
             SECONDARY_OUTPUT="${output_names[1]}"
         else
             SECONDARY_OUTPUT="${output_names[0]}"
         fi
-        export PRIMARY_OUTPUT SECONDARY_OUTPUT
+        export SECONDARY_OUTPUT
     fi
 
     [ "$NUMBER_OF_TEST_WINDOWS" -lt 2 ] && \
@@ -499,12 +501,14 @@ teardown() {
             [ "$target_output" = "$PRIMARY_OUTPUT" ] && \
                 target_output="$SECONDARY_OUTPUT" || \
                 target_output="$PRIMARY_OUTPUT"
+        else
+            target_output="$PRIMARY_OUTPUT"
         fi
         for direction in right down left up center; do
             [ "$(countwin)" -eq "$NUMBER_OF_TEST_WINDOWS" ] || return 0
-            run -0 $NIRIUSH flock --title "$TEST_TITLE" --mode float "$direction" --to-output "${target_output:-}"
+            run -0 $NIRIUSH flock --title "$TEST_TITLE" --mode float "$direction" --to-output "${target_output}"
         done
-        run -0 $NIRIUSH flock --title "$TEST_TITLE" --mode tile fit --to-output "${target_output:-}"
+        run -0 $NIRIUSH flock --title "$TEST_TITLE" --mode tile fit --to-output "${target_output}"
         for id in $WINDOW_IDS; do
             [ "$(countwin)" -eq "$NUMBER_OF_TEST_WINDOWS" ] || return 0
             niri msg action focus-window --id "$id"
