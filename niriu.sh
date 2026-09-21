@@ -177,15 +177,15 @@ configure() {
 
 # Window management.
 
-# Generic filtered property getter with `niri msg --json` and `jq`.
+# Generic filtered property getter with `niri msg --json` and `jq` with error handling.
 get() {
     local object_type="$1"
     shift
     local property="$1"
     shift
-    local filter='.[]'
+    local filter
     while [ $# -gt 0 ]; do
-        filter="$filter | select($1)"
+        filter+=" | select($1)"
         shift
     done
 
@@ -193,25 +193,17 @@ get() {
     if ! niri_output="$(niri msg --json "$object_type" 2>&1)"; then
         error "Error getting $object_type from niri: $niri_output" trace
     fi
-    local query_output
-    if ! query_output="$(jq -r "$filter | .$property" <<<"$niri_output" 2>&1)"; then
-        error "Error getting '$property' of '$object_type' with filter '$filter': $query_output" trace
-    fi
-    echo "$query_output"
-}
 
-# A specific getter for the currently focused output.
-# Why don't outputs have an is_focused property like workspaces and windows?
-focused_output() {
-    local niri_output
-    if ! niri_output="$(niri msg --json focused-output 2>&1)"; then
-        error "Error getting the focused output from niri: $niri_output" trace
+    # Why don't outputs have an is_focused property like workspaces and windows?
+    local query='.'
+    [ "$object_type" != focused-output ] && query+='[]'
+    query+="$filter | .$property"
+
+    local jq_output
+    if ! jq_output="$(jq -r "$query" <<<"$niri_output" 2>&1)"; then
+        error "Error applying filter '$query' to $object_type: $jq_output" trace
     fi
-    local query_output
-    if ! query_output="$(jq -r ".${1:-name}" <<<"$niri_output" 2>&1)"; then
-        error "Error parsing the focused output from niri: $query_output" trace
-    fi
-    echo "$query_output"
+    echo "$jq_output"
 }
 
 windo() {
@@ -274,7 +266,7 @@ fit() {
     local height
     local rows
     local columns
-    read -r width height < <(focused_output 'logical | "\(.width) \(.height)"') || exit
+    read -r width height < <(get focused-output 'logical | "\(.width) \(.height)"') || exit
     read -r rows columns < <(calculate_grid_layout "$width" "$height" "$(wc -w <<<"$window_ids")")
 
     niri msg action focus-column-first
@@ -297,7 +289,7 @@ float_fit() {
 
     local output_width
     local output_height
-    read -r output_width output_height < <(focused_output 'logical | "\(.width) \(.height)"') || exit
+    read -r output_width output_height < <(get focused-output 'logical | "\(.width) \(.height)"') || exit
 
     local floating_zone_width=$output_width
     local floating_zone_height=$output_height
@@ -359,7 +351,7 @@ flock() {
     to_window_id="$(get windows id '.is_focused == true')" || exit
 
     if [ ! "$to_output_name" ]; then
-        to_output_name="$(focused_output)" || exit
+        to_output_name="$(get focused-output name)" || exit
     fi
     windo "$window_ids" '--id' '' move-window-to-monitor "$to_output_name"
 
@@ -458,7 +450,7 @@ niriush() {
                         shift
                         local output_name
                         if [ "$1" = "focused" ]; then
-                            output_name=$(focused_output) || exit
+                            output_name=$(get focused-output name) || exit
                         else
                             output_name="$1"
                         fi
