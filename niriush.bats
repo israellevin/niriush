@@ -162,6 +162,17 @@ scatter() {
 }
 
 setup_file() {
+    # Mock notifications in PATH.
+    NOTIFY_SEND_LOG="$BATS_FILE_TMPDIR/notify-send.log"
+    export NOTIFY_SEND_LOG
+    mkdir -p "$BATS_FILE_TMPDIR/bin"
+    cat > "$BATS_FILE_TMPDIR/bin/notify-send" <<'STUB'
+#!/usr/bin/bash
+printf '%s\n' "${*//$'\n'/\\n}" >> "${NOTIFY_SEND_LOG:?NOTIFY_SEND_LOG is not set}"
+STUB
+    chmod +x "$BATS_FILE_TMPDIR/bin/notify-send"
+    export PATH="$BATS_FILE_TMPDIR/bin:$PATH"
+
     INITIAL_WINDOW_ID="$(get windows id '.is_focused == true')"
     export INITIAL_WINDOW_ID
 
@@ -205,6 +216,9 @@ teardown_file() {
 setup() {
     cd "$(dirname "$BATS_TEST_FILENAME")" || exit 1
 
+    : > "$NOTIFY_SEND_LOG"
+    unset NIRIUSH_ERROR_NOTIFY
+
     cp "$NIRI_CONFIG_FILE" "$NIRI_CONFIG_FILE".bak
     cp "$DYNAMIC_CONFIG_FILE" "$DYNAMIC_CONFIG_FILE".bak
 
@@ -246,6 +260,36 @@ teardown() {
     error="$(tail -n+2 tmp | head -n1)"
     rm tmp
     [ "$error" = 'niriu.sh error: --to-workspace cannot be used with scatter mode'$'\r' ]
+}
+
+# bats test_tags=cli
+@test 'a failing query reports and notifies exactly once' {
+    # An invalid jq filter fails the query deterministically, without needing niri to be unreachable.
+    run -1 env NIRIUSH_ERROR_NOTIFY=1 $NIRIUSH ids --filter '.is_urgent =='
+    [[ "$output" = *'niriu.sh error'* ]]
+    [ "$(grep -c 'niriu.sh error' <<<"$output")" -eq 1 ]
+    [ "$(wc -l < "$NOTIFY_SEND_LOG")" -eq 1 ]
+}
+
+# bats test_tags=cli
+@test 'a failing niri action reports and notifies exactly once' {
+    run -1 env NIRIUSH_ERROR_NOTIFY=1 $NIRIUSH windo --title "$TEST_TITLE" not-a-niri-action
+    [[ "$output" = *'niriu.sh error'* ]]
+    [ "$(grep -c 'niriu.sh error' <<<"$output")" -eq 1 ]
+    [ "$(wc -l < "$NOTIFY_SEND_LOG")" -eq 1 ]
+}
+
+# bats test_tags=cli
+@test 'a successful run notifies nobody' {
+    run -0 env NIRIUSH_ERROR_NOTIFY=1 $NIRIUSH ids --title "$TEST_TITLE"
+    [ ! -s "$NOTIFY_SEND_LOG" ]
+}
+
+# bats test_tags=cli
+@test 'not matching any window is not an error and notifies nobody' {
+    run -1 env NIRIUSH_ERROR_NOTIFY=1 $NIRIUSH ids --title "$TEST_TITLE-no-such-window"
+    [ -z "$output" ]
+    [ ! -s "$NOTIFY_SEND_LOG" ]
 }
 
 # bats test_tags=conf
